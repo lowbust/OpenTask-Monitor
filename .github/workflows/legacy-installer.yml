@@ -1,0 +1,76 @@
+name: Legacy folder app and installer (manual)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Build portable app and run tests
+        shell: pwsh
+        run: ./scripts/build.ps1
+      - name: Locate or install Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Cannot install Inno Setup" }
+          }
+      - name: Build installer
+        shell: pwsh
+        run: ./scripts/build-installer.ps1
+      - name: Installer smoke test (current Windows runner)
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem release/*-Setup-x64.exe | Select-Object -First 1).FullName
+          if (!$setup) { throw "Installer not found" }
+          $installDir = Join-Path $env:RUNNER_TEMP "opentask-installed"
+          $install = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$installDir`"") -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Installer failed: $($install.ExitCode)" }
+          $exe = Join-Path $installDir "OpenTaskMonitor.exe"
+          if (!(Test-Path $exe) -or !(Test-Path "$installDir/_internal")) { throw "Installed files are missing" }
+          $app = Start-Process -FilePath $exe -ArgumentList '--version' -Wait -PassThru
+          if ($app.ExitCode -ne 0) { throw "Installed executable failed" }
+          $remove = Start-Process -FilePath "$installDir/unins000.exe" -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
+          if ($remove.ExitCode -ne 0) { throw "Uninstaller failed" }
+      - name: Collect downloads and checksums
+        shell: pwsh
+        run: |
+          Copy-Item OpenTaskMonitor-windows-x64.zip release/
+          $lines = Get-ChildItem release -File | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          }
+          $lines | Set-Content release/SHA256SUMS.txt -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenTaskMonitor-windows-x64
+          path: release/*
+          if-no-files-found: error
+          retention-days: 30
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: OpenTaskMonitor-windows-x64
+          path: downloads
+      - name: Create draft release for maintainer verification
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: downloads/*

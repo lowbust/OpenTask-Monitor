@@ -1,0 +1,74 @@
+name: Build Windows app
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+      WINEDEBUG: '-all'
+      WINEDLLOVERRIDES: 'mscoree,mshtml=d'
+      LC_ALL: C.UTF-8
+      LANG: C.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install native toolchain and Qt test libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 wine64 xvfb xauth libxkbcommon0 libegl1 libopengl0 libglib2.0-0
+      - name: Test application source
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m ruff check .
+          python -m pytest -q
+      - name: Build one-EXE portable release and source archive
+        run: |
+          python scripts/build_singlefile.py
+          python scripts/build_source_release.py
+      - name: Smoke test the actual EXE, including first-start extraction
+        run: |
+          export WINEPREFIX="$RUNNER_TEMP/opentask-wine"
+          export WINEARCH=win64
+          xvfb-run -a /usr/lib/wine/wine64 build/embedded/OpenTaskMonitor.exe --smoke-test
+          xvfb-run -a /usr/lib/wine/wine64 build/embedded/OpenTaskMonitor.exe --smoke-test
+          xvfb-run -a /usr/lib/wine/wine64 build/embedded/OpenTaskMonitor.exe --random-name --smoke-test
+      - name: Verify public portable ZIP contains one EXE
+        run: |
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          for path in Path('release').glob('*-portable.zip'):
+              with zipfile.ZipFile(path) as archive:
+                  assert archive.namelist() == ['OpenTaskMonitor.exe']
+                  assert archive.testzip() is None
+          PY
+          cd release && sha256sum *.zip > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenTaskMonitor-release
+          path: release/*
+          if-no-files-found: error
+          retention-days: 30
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: OpenTaskMonitor-release
+          path: downloads
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: downloads/*
