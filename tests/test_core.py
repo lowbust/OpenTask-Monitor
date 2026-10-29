@@ -41,4 +41,4 @@ def test_csv_roundtrip():
     assert data[1][0] == '123'
     assert data[1][2] == "'=cmd,тест"
     assert data[1][4] == '2.25'
-    assert len(data[1]) == len(data[0]) == 9
+    assert len(data[1]) == len(data[0]) == 12

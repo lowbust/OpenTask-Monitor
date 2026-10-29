@@ -63,3 +63,11 @@ replace ABI-compatible LGPL libraries in the cache after closing the application
 they are not overwritten on warm launches. Older caches are not silently deleted.
 An embedded resource/cache marker is not anti-tamper protection and not DRM.
 The release-specific license audit remains the distributor's responsibility.
+
+
+## Optional hardware API (0.3.0)
+
+NVIDIA NVML is dynamically accessed only when System32/nvml.dll is already
+installed by the user's NVIDIA driver. That vendor library/driver is not bundled,
+modified or redistributed. No extra dependency is needed for unavailable-sensor
+reporting; AMD/Intel/CPU power/temperature providers are not claimed.

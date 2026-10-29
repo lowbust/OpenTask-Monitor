@@ -39,6 +39,10 @@ jobs:
           xvfb-run -a /usr/lib/wine/wine64 build/embedded/OpenTaskMonitor.exe --smoke-test
           xvfb-run -a /usr/lib/wine/wine64 build/embedded/OpenTaskMonitor.exe --smoke-test
           xvfb-run -a /usr/lib/wine/wine64 build/embedded/OpenTaskMonitor.exe --random-name --smoke-test
+      - name: Read-only security helper smoke (not a real Windows VM)
+        run: |
+          export WINEPREFIX="$RUNNER_TEMP/opentask-wine"
+          xvfb-run -a /usr/lib/wine/wine64 build/embedded/package/OpenTaskMonitor/runtime/python.exe scripts/security_smoke.py build/security-smoke.json
       - name: Verify public portable ZIP contains one EXE
         run: |
           python - <<'PY'

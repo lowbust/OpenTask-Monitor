@@ -161,3 +161,76 @@ def test_incremental_model_keeps_selection_without_reset(app):
     model.replace([replace(rows()[1], cpu=10)])
     assert not persistent.isValid()
     assert resets == []
+
+
+def test_priority_pinning_new_only_filter_and_color(app):
+    from dataclasses import replace
+
+    from opentask.snapshots import process_key
+    model = ProcessModel()
+    model.replace([replace(rows()[0], triage=60, exe=r'C:\Apps\Beta.exe'),
+                   replace(rows()[1], triage=10, exe=r'C:\Apps\Alpha.exe')])
+    proxy = SearchProxy()
+    proxy.setSourceModel(model)
+    for direction in (Qt.SortOrder.AscendingOrder, Qt.SortOrder.DescendingOrder):
+        proxy.sort(2, direction)
+        assert proxy.index(0, 0).data() == 'Beta.exe'
+    assert model.data(model.index(0, 0), Qt.ItemDataRole.ForegroundRole).name() == '#ff8b8b'
+    proxy.pin_high = False
+    proxy.invalidate()
+    proxy.sort(2, Qt.SortOrder.DescendingOrder)
+    assert proxy.index(0, 0).data() == 'Alpha.exe'
+    proxy.new_only = True
+    proxy.baseline_keys = {process_key(model.rows[1])}
+    proxy.invalidate()
+    assert proxy.rowCount() == 1 and proxy.index(0, 0).data() == 'Beta.exe'
+
+
+def test_security_dialogs_construct_no_background_security_scans(app, tmp_path, monkeypatch):
+    import opentask.ui.window as window_module
+    from opentask.ui.inspector import Inspector
+    monkeypatch.setattr(window_module, 'MonitorThread', SilentMonitor)
+    QSettings.setDefaultFormat(QSettings.Format.IniFormat)
+    QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(tmp_path))
+    window = window_module.MainWindow(tmp_path)
+    window.open_defense()
+    center = window.defense_window
+    assert center.tabs.count() == 5
+    assert not any(check.isChecked() for check in (center.watch_check, center.audit_check, center.gpu_check))
+    assert not window.tasks
+    center.gpu_ready({'devices': [{'name': 'fixture GPU', 'gpu_percent': 90, 'temperature_C': 70, 'power_W': 100}]})
+    center.gpu_ready({'devices': [{'name': 'fixture GPU', 'gpu_percent': 10, 'temperature_C': 69, 'power_W': 25}]})
+    assert 'НЕ доказательство' in center.hardware_text.toPlainText()
+    center.gpu_ready({'devices': [], 'note': 'unavailable'})
+    assert center.gpu_load.value == 'н/д' and center.previous_gpu is None
+    inspector = Inspector(window, rows()[0])
+    assert inspector.tabs.count() == 7 and not inspector.busy
+    inspector.close()
+    center.close()
+    app.processEvents()
+    window.close()
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
+
+
+def test_nonblocking_monitor_tasks_do_not_disable_main_actions(app, tmp_path, monkeypatch):
+    import opentask.ui.window as window_module
+    monkeypatch.setattr(window_module, 'MonitorThread', SilentMonitor)
+    QSettings.setDefaultFormat(QSettings.Format.IniFormat)
+    QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(tmp_path))
+    window = window_module.MainWindow(tmp_path)
+    monkeypatch.setattr(window.pool, 'start', lambda _: None)
+    window.run_task(lambda: 'readonly', block_actions=False)
+    assert window.tasks and not window.blocking_tasks
+    assert all(button.isEnabled() for button in window.action_buttons)
+    next(iter(window.tasks)).run()
+    assert not window.tasks
+    window.run_task(lambda: 'blocking')
+    assert window.blocking_tasks and not any(button.isEnabled() for button in window.action_buttons)
+    next(iter(window.tasks)).run()
+    assert not window.blocking_tasks
+    window.close()
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()

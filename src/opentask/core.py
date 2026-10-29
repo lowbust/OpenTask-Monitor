@@ -21,6 +21,8 @@ class ProcessRow:
     created: float
     exe: str = ""
     findings: str = ""
+    triage: int = 0
+    score_notes: str = ""
 
 
 @dataclass(frozen=True)
@@ -68,11 +70,12 @@ def spreadsheet_safe(value: Any) -> str:
 def processes_csv(rows: list[ProcessRow]) -> str:
     output = io.StringIO(newline="")
     writer = csv.writer(output)
-    writer.writerow(["PID", "PPID", "Name", "User", "CPU %", "RSS bytes", "Threads", "Status", "Started"])
+    writer.writerow(["PID", "PPID", "Name", "User", "CPU %", "RSS bytes", "Threads", "Status", "Started", "Path", "Priority", "Priority reasons"])
     for p in rows:
         writer.writerow([
             p.pid, p.ppid, spreadsheet_safe(p.name), spreadsheet_safe(p.username),
             round(p.cpu, 2), p.memory, p.threads, spreadsheet_safe(p.status),
             datetime.fromtimestamp(p.created).isoformat(timespec="seconds") if p.created else "",
+            spreadsheet_safe(p.exe), p.triage, spreadsheet_safe(p.score_notes),
         ])
     return output.getvalue()

@@ -1,9 +1,9 @@
 # GitHub: исходный код и готовый релиз отдельно
 
-Публичная поставка 0.2.2:
+Публичная поставка 0.3.0:
 
-- **opentask-monitor-0.2.2-source.zip** — исходный проект для Code.
-- **OpenTaskMonitor-0.2.2-windows-x64-portable.zip** — внутри только OpenTaskMonitor.exe.
+- **opentask-monitor-0.3.0-source.zip** — исходный проект для Code.
+- **OpenTaskMonitor-0.3.0-windows-x64-portable.zip** — внутри только OpenTaskMonitor.exe.
 
 ## Как опубликовать без локальной сборки
 

@@ -1,4 +1,4 @@
-# Security — OpenTask Monitor 0.2.2
+# Security — OpenTask Monitor 0.3.0
 
 Локальный диспетчер, не антивирус, EDR или защищённый процесс. Версия alpha.
 Подтверждение и denylist снижают риск ошибки, но не гарантируют безопасность.
@@ -58,3 +58,32 @@ folder, never used as the ready cache. Failed/corrupt prepared caches may requir
 manual cleanup of that build's cache after closing the application. Do not delete
 startup-backup.json. No tests of interruption or antivirus quarantine on real
 Windows have been performed here.
+
+## Analysis boundaries added in 0.3.0
+
+- Main PE executable sections only, not all memory/DLL/Python/JIT content. ASLR
+  HIGHLOW/DIR64 is normalized and IAT skipped; hotpatching/AV instrumentation can
+  still differ legitimately. Process module lists/PEB/thread starts may be altered
+  by hostile processes. Read-only user-mode evidence is incomplete, never a clean bill.
+- No reliable enumeration of every WH_KEYBOARD_LL/GetAsyncKeyState/clipboard hook.
+  No keylogging or clipboard-content collection, no injected DLLs, no full WinAPI trace.
+- Sysmon events require separate installation/configuration; Security audit may be
+  disabled/inaccessible. An empty/failed event query means unavailable evidence.
+- IFEO selected-image observation is not write protection, repair, full persistence
+  inventory or actor attribution. DNS registry state excludes full DoH/NRPT policy.
+- Score is additive investigation priority, not a probability or automated malware
+  verdict. Legitimate developer tools/temp installers/JIT/admin tokens may score high.
+  Public/unknown IP and unavailable signature checks alone get no points.
+- Baselines are user-selected JSON, not certified clean or signed. Same path/name/user
+  processes may have changed content; new-only filtering hides existing processes.
+  Per-service/Run access failures can still make apparently successful inventory partial.
+- Quarantine .vir is a verified ZIP container, not raw PE with another extension.
+  It is NOT encrypted, access-isolated, a VM or an execution-prevention boundary:
+  users/admins/tools can read/extract/execute the sample. No automatic restoration/run.
+  Original EXE is removed only after verified backup and guarded process termination.
+  Other processes may keep the file mapped, restart it, or race path/hash checks.
+  Container retention after error does not mean the source was neutralized.
+- Random-name copying preserves hash; no mutation of signed interpreter bytes.
+  There is no driver, PPL registration, anti-kill or security-product immunity.
+- NVML availability depends on actual NVIDIA driver/hardware. Unavailable sensors
+  report n/a, not zero. Load changes/thermal inertia do not establish hidden mining.

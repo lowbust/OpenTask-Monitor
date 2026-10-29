@@ -45,7 +45,11 @@ from opentask.core import human_bytes, processes_csv
 from opentask.inspection import RateLimit, kill_tree, parent_findings, path_findings, remove_file
 from opentask.launch_mode import random_enabled, set_random_enabled
 from opentask.persistence import scheduled_tasks
+from opentask.quarantine import quarantine_process
+from opentask.snapshots import process_key
 from opentask.startup import BackupStore, StartupManager, WinRegistry, folder_entries
+from opentask.triage import priority
+from opentask.ui.defense import DefenseCenter
 from opentask.ui.inspector import Inspector
 from opentask.ui.models import ProcessModel, SearchProxy, TableModel
 from opentask.ui.widgets import MetricCard
@@ -66,6 +70,11 @@ class MainWindow(QMainWindow):
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(3)
         self.tasks = set()
+        self.blocking_tasks = set()
+        self.evidence = {}
+        self.baseline = None
+        self.defense_window = None
+        self.closing = False
         self.action_buttons = []
         self.last_snapshot = None
         self.vt_key = ''
@@ -176,7 +185,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         self.process_model = ProcessModel(self)
         self.process_table, self.process_proxy = self.make_table(self.process_model)
-        for col, size in enumerate((200, 65, 80, 115, 75, 160, 95, 65, 300, 370)):
+        for col, size in enumerate((200, 65, 80, 115, 75, 160, 95, 65, 300, 370, 125)):
             self.process_table.setColumnWidth(col, size)
         self.process_table.sortByColumn(2, Qt.SortOrder.DescendingOrder)
         self.process_proxy.setDynamicSortFilter(False)
@@ -301,6 +310,18 @@ class MainWindow(QMainWindow):
         launch_menu.addAction('Как переключить режим…', self.launch_mode_help)
         tools = self.menuBar().addMenu('Инструменты')
         tools.addAction('Анализ выбранного процесса…', self.inspect_process)
+        tools.addAction('Снимки / hosts / DNS / IFEO / аудит / GPU…', self.open_defense)
+        self.pin_priority_action = QAction('Приоритет ≥60 закреплять сверху (не диагноз)', self)
+        self.pin_priority_action.setCheckable(True)
+        self.pin_priority_action.setChecked(True)
+        self.pin_priority_action.toggled.connect(self.pin_priority)
+        tools.addAction(self.pin_priority_action)
+        self.new_only_action = QAction('Показывать только новые EXE относительно эталона', self)
+        self.new_only_action.setCheckable(True)
+        self.new_only_action.setEnabled(False)
+        self.new_only_action.toggled.connect(self.filter_new_only)
+        tools.addAction(self.new_only_action)
+        tools.addAction('Карантин выбранного EXE (с завершением)…', self.quarantine_selected)
         tools.addAction(self.signature_toggle)
         tools.addAction('Завершить дерево выбранного процесса…', self.kill_selected_tree)
         tools.addSeparator()
@@ -349,7 +370,7 @@ class MainWindow(QMainWindow):
             self.refresh_system()
 
     def refresh_current(self):
-        if self.tasks:
+        if self.blocking_tasks:
             return
         index = self.tabs.currentIndex()
         if index == 1:
@@ -376,7 +397,12 @@ class MainWindow(QMainWindow):
                      parent_findings(row, parents)]
             if signature:
                 parts.append(signature.status + (' · ' + signature.publisher if signature.publisher else ''))
-            decorated.append(replace(row, findings='; '.join(part for part in parts if part)))
+            row = replace(row, findings='; '.join(part for part in parts if part))
+            score, reasons = priority(row, signature, self.evidence.get((row.pid, row.created)),
+                                      os.environ.get('TEMP', r'C:\Users\User\AppData\Local\Temp'))
+            decorated.append(replace(row, triage=score, score_notes=reasons))
+        active = {(row.pid, row.created) for row in snapshot.processes}
+        self.evidence = {key: value for key, value in self.evidence.items() if key in active}
         snapshot = replace(snapshot, processes=tuple(decorated))
         self.last_snapshot = snapshot
         if self.signature_worker.enabled and time.monotonic() - self.signature_enqueue_time >= 60:
@@ -418,10 +444,12 @@ class MainWindow(QMainWindow):
             return p.pid, p.created
         return None
 
-    def run_task(self, fn, callback=None, on_error=None):
+    def run_task(self, fn, callback=None, on_error=None, *, block_actions=True):
         task = Task(fn)
         self.tasks.add(task)
-        self.set_busy(True)
+        if block_actions:
+            self.blocking_tasks.add(task)
+        self.set_busy(bool(self.blocking_tasks))
         if callback:
             task.signals.result.connect(callback)
         task.signals.error.connect(on_error or self.report_error)
@@ -430,7 +458,8 @@ class MainWindow(QMainWindow):
 
     def task_finished(self, task):
         self.tasks.discard(task)
-        self.set_busy(bool(self.tasks))
+        self.blocking_tasks.discard(task)
+        self.set_busy(bool(self.blocking_tasks))
 
     def set_busy(self, busy):
         for button in self.action_buttons:
@@ -453,7 +482,7 @@ class MainWindow(QMainWindow):
                                     QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes
 
     def mutate_process(self, action):
-        if self.tasks:
+        if self.blocking_tasks:
             return
         p = self.selected(self.process_table, self.process_model)
         if p is None:
@@ -468,7 +497,7 @@ class MainWindow(QMainWindow):
             self.run_task(partial(process_action, p.pid, p.created, action), self.log)
 
     def priority_menu(self):
-        if self.tasks:
+        if self.blocking_tasks:
             return
         menu = QMenu(self)
         for text, action in [("Низкий", "idle"), ("Ниже обычного", "below"), ("Обычный", "normal"),
@@ -477,14 +506,15 @@ class MainWindow(QMainWindow):
         menu.exec(self.cursor().pos())
 
     def process_menu(self, position):
-        if self.tasks:
+        if self.blocking_tasks:
             return
         index = self.process_table.indexAt(position)
         if not index.isValid():
             return
         self.process_table.selectRow(index.row())
         menu = QMenu(self)
-        menu.addAction("Анализ: дерево / подпись / VT / DLL / сеть / handles…", self.inspect_process)
+        menu.addAction("Анализ: память / токен / дерево / подпись / VT / DLL / сеть…", self.inspect_process)
+        menu.addAction("Карантин выбранного EXE…", self.quarantine_selected)
         menu.addAction("Свойства", self.show_details)
         menu.addAction("Открыть расположение", self.open_file)
         menu.addSeparator()
@@ -493,7 +523,7 @@ class MainWindow(QMainWindow):
         menu.exec(self.process_table.viewport().mapToGlobal(position))
 
     def show_details(self, *_):
-        if self.tasks:
+        if self.blocking_tasks:
             return
         p = self.selected(self.process_table, self.process_model)
         if p:
@@ -518,7 +548,7 @@ class MainWindow(QMainWindow):
         dialog.open()
 
     def open_file(self):
-        if self.tasks:
+        if self.blocking_tasks:
             return
         p = self.selected(self.process_table, self.process_model)
         if p:
@@ -533,7 +563,7 @@ class MainWindow(QMainWindow):
         self.log(f"Список служб обновлён: {len(rows)}.")
 
     def mutate_service(self, action):
-        if self.tasks:
+        if self.blocking_tasks:
             return
         service = self.selected(self.service_table, self.service_model)
         if service is None:
@@ -552,7 +582,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(2000, self.delayed_service_refresh)
 
     def delayed_service_refresh(self):
-        if not self.tasks and self.tabs.currentIndex() == 1:
+        if not self.blocking_tasks and self.tabs.currentIndex() == 1:
             self.refresh_services()
 
     def startup_manager(self):
@@ -573,7 +603,7 @@ class MainWindow(QMainWindow):
             self.log("Команда скопирована. Ничего не запускалось.")
 
     def toggle_startup(self):
-        if self.tasks:
+        if self.blocking_tasks:
             return
         entry = self.selected(self.startup_table, self.startup_model)
         if entry is None:
@@ -615,6 +645,46 @@ class MainWindow(QMainWindow):
                           "Не является антивирусом и не оценивает безопасность процессов.\n"
                           "VirusTotal — только вручную, hash-only; телеметрии и обновлений нет.\n\n"
                           "F5 — обновление служб/автозагрузки/системы\nCtrl+F — поиск · Ctrl+S — CSV")
+
+    def open_defense(self):
+        if self.closing:
+            return
+        if self.defense_window is None:
+            self.defense_window = DefenseCenter(self)
+            self.defense_window.destroyed.connect(lambda: setattr(self, 'defense_window', None))
+        self.defense_window.show()
+        self.defense_window.raise_()
+
+    def set_baseline(self, value):
+        self.baseline = value
+        self.process_proxy.baseline_keys = {process_key(row) for row in value.get('processes', [])}
+        self.new_only_action.setEnabled(True)
+        self.process_proxy.invalidate()
+        self.log('Эталон загружен; сравнение по пути EXE/имени/пользователю, не вердикт чистоты.')
+
+    def filter_new_only(self, enabled):
+        if enabled and self.baseline is None:
+            self.new_only_action.blockSignals(True)
+            self.new_only_action.setChecked(False)
+            self.new_only_action.blockSignals(False)
+            return
+        self.process_proxy.new_only = enabled
+        self.process_proxy.invalidate()
+
+    def pin_priority(self, enabled):
+        self.process_proxy.pin_high = enabled
+        self.process_proxy.invalidate()
+
+    def quarantine_selected(self):
+        if self.blocking_tasks:
+            return
+        row = self.selected(self.process_table, self.process_model)
+        if row and self.confirm('Карантин выбранного EXE',
+            f'{row.name} · PID {row.pid}\n{row.exe}\n\n'
+            'Сначала будет создан проверенный ZIP-контейнер .vir, затем процесс завершён, '
+            'а исходный EXE удалён БЕЗ КОРЗИНЫ. При ошибке удаления копия останется. '
+            'Это не VM/sandbox, извлечение и запуск образца опасны. Продолжить?'):
+            self.run_task(partial(quarantine_process, row.pid, row.created, self.data_dir), self.log)
 
     def change_launch_mode(self, enabled):
         try:
@@ -663,7 +733,7 @@ class MainWindow(QMainWindow):
         self.signature_results[path] = result
 
     def inspect_process(self):
-        if self.tasks:
+        if self.blocking_tasks:
             return
         row = self.selected(self.process_table, self.process_model)
         if row:
@@ -674,7 +744,7 @@ class MainWindow(QMainWindow):
         self.log('API-ключ VirusTotal удалён из текущего сеанса (на диск он не записывался).')
 
     def kill_selected_tree(self):
-        if self.tasks:
+        if self.blocking_tasks:
             return
         row = self.selected(self.process_table, self.process_model)
         if row and self.confirm('Завершение дерева',
@@ -684,7 +754,7 @@ class MainWindow(QMainWindow):
             self.run_task(partial(kill_tree, row.pid, row.created), self.log)
 
     def delete_selected_file(self, reboot=False):
-        if self.tasks:
+        if self.blocking_tasks:
             return
         row = self.selected(self.process_table, self.process_model)
         if row is None:
@@ -724,6 +794,10 @@ class MainWindow(QMainWindow):
         dialog.open()
 
     def closeEvent(self, event):
+        if not self.closing:
+            self.closing = True
+            if self.defense_window is not None:
+                self.defense_window.close()
         self.monitor.stop()
         self.signature_worker.stop()
         self.signature_worker.wait(50)

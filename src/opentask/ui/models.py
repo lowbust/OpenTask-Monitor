@@ -4,6 +4,7 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyMod
 from PySide6.QtGui import QColor
 
 from opentask.core import ProcessRow, human_bytes
+from opentask.snapshots import process_key
 
 SORT_ROLE = Qt.ItemDataRole.UserRole + 1
 
@@ -34,6 +35,9 @@ class TableModel(QAbstractTableModel):
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
+        if role == Qt.ItemDataRole.ForegroundRole and isinstance(self.rows[index.row()], dict):
+            if self.rows[index.row()].get('Замечание'):
+                return QColor('#e7cc85')
         value = self.getter(self.rows[index.row()], index.column())
         if role in (Qt.ItemDataRole.DisplayRole, SORT_ROLE):
             return value
@@ -44,7 +48,7 @@ class TableModel(QAbstractTableModel):
 
 class ProcessModel(TableModel):
     def __init__(self, parent=None):
-        super().__init__(["Процесс", "PID", "ЦП, %", "Память RSS", "Потоки", "Пользователь", "Статус", "PPID", "Путь", "Проверка"],
+        super().__init__(["Процесс", "PID", "ЦП, %", "Память RSS", "Потоки", "Пользователь", "Статус", "PPID", "Путь", "Проверка", "Приоритет 0–100"],
                          self.value, parent)
 
     def replace(self, rows):
@@ -75,13 +79,17 @@ class ProcessModel(TableModel):
 
     @staticmethod
     def value(row: ProcessRow, column: int):
-        return (row.name, row.pid, row.cpu, row.memory, row.threads, row.username, row.status, row.ppid, row.exe, row.findings)[column]
+        return (row.name, row.pid, row.cpu, row.memory, row.threads, row.username, row.status, row.ppid, row.exe, row.findings, row.triage)[column]
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
         row = self.rows[index.row()]
         col = index.column()
+        if role == Qt.ItemDataRole.ToolTipRole and col == 10:
+            return row.score_notes or 'Нет начисленных баллов. Это не подтверждение безопасности.'
+        if role == Qt.ItemDataRole.ForegroundRole and row.triage >= 60:
+            return QColor('#ff8b8b')
         if role == Qt.ItemDataRole.ForegroundRole and col in (0, 9):
             if "нетипичный" in row.findings or "недействительна" in row.findings:
                 return QColor("#ffaf83")
@@ -107,6 +115,9 @@ class SearchProxy(QSortFilterProxyModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.query = ""
+        self.pin_high = True
+        self.new_only = False
+        self.baseline_keys = set()
         self.setSortRole(SORT_ROLE)
         self.setSortCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.setDynamicSortFilter(True)
@@ -120,7 +131,22 @@ class SearchProxy(QSortFilterProxyModel):
             self.query = text.strip().casefold()
             self.invalidateFilter()
 
+    def lessThan(self, left, right):
+        model = self.sourceModel()
+        if self.pin_high and isinstance(model, ProcessModel):
+            first, second = model.rows[left.row()].triage, model.rows[right.row()].triage
+            high_first, high_second = first >= 60, second >= 60
+            descending = self.sortOrder() == Qt.SortOrder.DescendingOrder
+            if high_first != high_second:
+                return not high_first if descending else high_first
+            if high_first and first != second:
+                return first < second if descending else first > second
+        return super().lessThan(left, right)
+
     def filterAcceptsRow(self, row, parent):
+        model = self.sourceModel()
+        if self.new_only and isinstance(model, ProcessModel) and process_key(model.rows[row]) in self.baseline_keys:
+            return False
         if not self.query:
             return True
         model = self.sourceModel()

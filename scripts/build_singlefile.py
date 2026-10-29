@@ -16,7 +16,7 @@ from pathlib import Path
 
 from build_embedded_portable import ROOT, build
 
-VERSION = '0.2.2'
+VERSION = '0.3.0'
 
 
 def payload_names(package: Path):

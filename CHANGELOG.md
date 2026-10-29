@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 — 2026-10-28
+
+- On-demand read-only PE executable section comparison with ASLR/IAT handling,
+  private executable regions and thread start queries; isolated 15-second helper.
+- Read-only token privileges, elevation/integrity, sensitive-right highlighting.
+- Explainable investigation priority, optional high-priority pinning, extended CSV.
+- JSON system baselines/diff, explicit partial coverage, new-EXE process filtering.
+- Verified non-PE quarantine containers before termination/deletion of guarded EXE.
+- Optional hosts/DNS/IFEO observation, Windows/Sysmon event viewer, NVIDIA NVML graphs.
+- Security polling off by default; separate nonblocking tasks, no added GUI-thread scans.
+- No kernel anti-kill, hash randomization, full API/hooks/keylogger/miner detection claims.
+- Same one-EXE public distribution and separate matching MIT source archive.
+
 ## 0.2.2 — 2026-10-28
 
 - Public portable ZIP contains exactly one OpenTaskMonitor.exe.

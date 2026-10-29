@@ -1,3 +1,38 @@
+# Проверки 0.3.0 — security analysis + тот же one-EXE формат
+
+Дата 2026-10-28. Linux x64, Wine 10.0/Xvfb. НЕ полноценная Windows 10/11 VM.
+
+- Ruff / compileall: успешно. Pytest: **92 passed**. Новые тесты — fixtures/mocks,
+  не завершали реальные процессы и не изменяли реестр.
+- Read-only native smoke встроенным CPython/Qt 6.8.3: главный PE собственного
+  python.exe, **3660 кодовых байт сравнено, 0 различий**, PEB/module base совпали,
+  **3 потока**, адреса старта получены. Не реальный malware/hollowing тест.
+- TokenPrivileges: **21 право**, elevation/integrity прочитаны; API ничего не менял.
+- Hosts SHA считан; DNS в Wine частично недоступен, ошибки не заменены «чисто».
+  Sysmon отсутствует — выдано «журнал недоступен», не отсутствие опасных событий.
+- NVIDIA NVML в среде отсутствует: н/д, без выдуманных температуры/ватт.
+  Настоящее железо/real Sysmon/hook detection не тестировались.
+- Qt: 7 process-inspector вкладок, 5 системных, optional мониторы выключены;
+  JSON capture/load и new-only фильтр относительно текущего снимка прошли.
+- 1500 синтетических строк под Wine/Qt 6.8.3: initial on_snapshot **646.9 ms**,
+  50 steady samples: mean **22.0 ms**, max **28.9 ms**. Замер только GUI-slot,
+  без paint/системного сбора, новые мониторы выключены; не гарантия на другом ПК.
+- Финальный native one-EXE release: холодный запуск и повторный random-mode smoke
+  из отдельной папки с кириллицей, выход 0; рядом только EXE, кеш переиспользован.
+- Обе ZIP проверены на целостность; portable содержит ровно OpenTaskMonitor.exe.
+  Все bundled app .py побайтно совпадают с source ZIP; версия в source/runtime/PE 0.3.0.
+
+Деструктивный карантин реального EXE, реальные Windows kernel/protected processes,
+HVCI/WDK/подпись драйвера, hardware NVML sensors, Sysmon config и реальные malware
+на Windows VM **не проверены**. Карантинные тесты — безопасные файлы/моки.
+Нет driver anti-kill, random hash, полного WinAPI trace, надёжного keylogger/global
+hook или универсального miner detector. Не выдавайте эти возможности за готовые.
+GitHub Actions подготовлен, но удалённый workflow в чужом репозитории не запускался.
+
+Старые проверки ниже — история предыдущих версий, не новая Windows-сертификация.
+
+---
+
 # Проверки 0.2.2 — one-EXE release
 
 Дата 2026-10-28. Linux x64, Wine 10.0/Xvfb; не полноценная Windows VM.

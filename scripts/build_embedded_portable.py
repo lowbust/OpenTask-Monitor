@@ -83,7 +83,7 @@ def build(work: Path, output: Path, gcc: str, windres: str, pack: bool = True):
     shutil.copy2(ROOT / 'docs' / 'PORTABLE-START.txt', package / 'START-HERE.txt')
     shutil.copy2(runtime / 'LICENSE.txt', package / 'third_party' / 'Python-LICENSE.txt')
     manifest = {
-        'app_version': '0.2.2', 'target': 'Windows 10/11 x64', 'python': '3.12.10',
+        'app_version': '0.3.0', 'target': 'Windows 10/11 x64', 'python': '3.12.10',
         'PySide6-Essentials': '6.8.3', 'shiboken6': '6.8.3', 'psutil': '7.2.2',
         'input_sha256': HASHES,
         'source_references': {
@@ -115,7 +115,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--work', type=Path, default=ROOT / 'build' / 'embedded')
     parser.add_argument('--output', type=Path,
-                        default=ROOT / 'release' / 'OpenTaskMonitor-0.2.2-windows-x64-portable.zip')
+                        default=ROOT / 'release' / 'OpenTaskMonitor-0.3.0-windows-x64-portable.zip')
     parser.add_argument('--unpacked-only', action='store_true')
     parser.add_argument('--gcc', default='x86_64-w64-mingw32-gcc')
     parser.add_argument('--windres', default='x86_64-w64-mingw32-windres')

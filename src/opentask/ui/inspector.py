@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from opentask import inspection
 from opentask.backend import checked_process
+from opentask.forensics import memory_report, token_privileges
 from opentask.signatures import verify_signature
 from opentask.ui.models import SearchProxy, TableModel
 
@@ -79,6 +80,15 @@ class Inspector(QDialog):
         page, buttons = self.page(self.handle_table)
         self.add_button(buttons, 'Файлы и ключи реестра (до 10 с)', self.load_handles)
         self.tabs.addTab(page, 'Дескрипторы')
+        self.memory_text = QPlainTextEdit()
+        self.memory_text.setReadOnly(True)
+        page, buttons = self.page(self.memory_text)
+        self.add_button(buttons, 'Код / private executable / адреса потоков (до 15 с)', self.scan_memory)
+        self.tabs.addTab(page, 'Память / потоки')
+        self.token_table, self.token_model = self.table(['Право', 'Включено', 'По умолчанию', 'Замечание'])
+        page, buttons = self.page(self.token_table)
+        self.add_button(buttons, 'Прочитать Token Privileges (ничего не менять)', self.scan_token)
+        self.tabs.addTab(page, 'Права токена')
         self.status = QLabel('Выберите проверку. Подпись и VT относятся к файлу на диске, не к памяти процесса.')
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
@@ -227,6 +237,29 @@ class Inspector(QDialog):
             self.handle_model.replace(result['rows'])
             QMessageBox.information(self, 'Ограничения дескрипторов', result['note'])
         self.run(partial(inspection.handles, self.row.pid, self.row.created), loaded)
+
+    def scan_memory(self):
+        def loaded(result):
+            summary = (f"Сравнено: {result.get('compared_bytes', 0)} байт · "
+                       f"отличий: {result.get('different_bytes', 0)} · "
+                       f"не прочитано: {result.get('unreadable_bytes', 0)} · "
+                       f"потоков вне модулей: {result.get('thread_outside_count', 0)}\n"
+                       'Это ограниченный снимок, не диагноз hollowing/скрытого потока; см. notes.\n\n')
+            self.memory_text.setPlainText(summary + json.dumps(result, ensure_ascii=False, indent=2))
+            evidence = self.owner.evidence.setdefault((self.row.pid, self.row.created), {})
+            evidence['memory_difference'] = bool(result.get('PEB_module_mismatch') or
+                ((result.get('different_percent') or 0) >= 1 and result.get('different_bytes', 0) >= 64))
+            evidence['thread_outside'] = bool(result.get('thread_outside_count'))
+        self.run(partial(memory_report, self.row.pid, self.row.created), loaded)
+
+    def scan_token(self):
+        def loaded(result):
+            self.token_model.replace(result['rows'])
+            evidence = self.owner.evidence.setdefault((self.row.pid, self.row.created), {})
+            evidence['sensitive_token'] = bool(result['sensitive_enabled'])
+            QMessageBox.information(self, 'Токен — снимок',
+                f"Elevation: {result['elevated']} · Integrity: {result['integrity']}\n\n" + result['note'])
+        self.run(partial(token_privileges, self.row.pid, self.row.created), loaded)
 
     def closeEvent(self, event):
         self.timer.stop()

@@ -1,4 +1,4 @@
-# Testing 0.2.2
+# Testing 0.3.0
 
 ## Автоматические тесты
 
@@ -40,7 +40,7 @@ IPv6 disconnect rejection, kill-tree preflight и потоковая доста�
 Деструктивные операции не подтверждены на настоящей Windows в среде подготовки.
 Kernel driver отсутствует и не тестируется. Источник результатов — VERIFICATION.md.
 
-## Unified launcher 0.2.2
+## Unified launcher 0.3.0
 
 - [ ] One root OpenTaskMonitor.exe, no separate Random executable.
 - [ ] Toggle menu on → close → same EXE starts with random interpreter name/title.
@@ -49,7 +49,7 @@ Kernel driver отсутствует и не тестируется. Источ�
 - [ ] Read-only runtime: fallback prompt, no destructive permission changes.
 - [ ] No changes to startup-backup.json when changing launch preference.
 
-## One-EXE release 0.2.2
+## One-EXE release 0.3.0
 
 - [ ] Public portable ZIP contains exactly OpenTaskMonitor.exe.
 - [ ] Cold launch from an otherwise empty Unicode path prepares user cache offline.
@@ -60,3 +60,31 @@ Kernel driver отсутствует и не тестируется. Источ�
       interrupted extraction, quarantine recovery — manually test on Windows VM.
 - [ ] LGPL-compatible library replacement without forced restoration on warm launch.
 - [ ] Repository Code has source, Releases has the one-EXE portable, no runtime in git.
+
+
+## Security analysis 0.3.0
+
+Automated fixtures/mocks: PE x86/x64, relocation delta + IAT exclusion, malformed
+PE/relocations, limits, unknown-vs-unsigned scoring, temp path boundary, score cap,
+PID-restart baseline semantics, service config vs runtime, coverage errors, JSON
+validation, verified ZIP quarantine, changed source/no-stop-before-pack/terminate
+failure, watch diffs without attribution, event XML, memory helper timeout, Qt
+priority pinning/new-only/colors, optional tasks and sensor-unavailable UI handling.
+No destructive unit test acts on an actual process or real registry.
+
+Developer read-only smoke: run embedded runtime/python.exe scripts/security_smoke.py
+<output.json> under Windows/Wine. Tests own PE/token, real unavailable sensor/log
+handling, system dialogs and baseline filter; results are not a real malware test.
+
+Still required on disposable Windows 10/11 VM, not the user's main machine:
+- [ ] Own/foreign x86/x64, protected process access denied, timeout/unsupported PE.
+- [ ] Harmless signed test fixtures with legitimate hotpatching/JIT, no false diagnosis.
+- [ ] NVIDIA actual NVML hardware/sensor unsupported cases; AMD/Intel unavailable states.
+- [ ] Real configured Sysmon/Security events, missing audit rules, bounded 200-record view.
+- [ ] Disposable hosts/DNS/IFEO changes, DHCP/VPN, polling gaps, registry access denied.
+- [ ] Disposable EXE quarantine: failed stop/unlink, concurrent file replacement, AV action.
+- [ ] New-only baseline across reboot/users; partial services/Run/tasks permissions.
+- [ ] Close while memory/token/snapshot watcher is active; no timers after close.
+
+No keylogger/global-hook identification, all-API trace, driver/HVCI/PPL protection,
+random hash or mining attribution is implemented, so no such tests are claimed.

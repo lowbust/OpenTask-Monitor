@@ -1,4 +1,4 @@
-# Architecture 0.2.2
+# Architecture 0.3.0
 
 - core: immutable snapshots, CSV; metadata has exe/path hints, collection time.
 - backend: psutil Collector, metadata cache (15s), CPU/RSS every sample, guarded actions.
@@ -40,3 +40,29 @@ separately, while dynamic runtime libraries and legal notices stay in the payloa
 OPENTASK_PACKAGE_DIR enables Help → licenses; OPENTASK_LAUNCHER protects the original
 external EXE from the application's own delete operation. No app data is deleted
 when an EXE is moved. Source packaging deliberately excludes builds and binaries.
+
+## Security analysis 0.3.0
+
+- pe_memory: pure x86/x64 PE parsing, executable raw bytes, HIGHLOW/DIR64
+  normalization, IAT exclusion, size/count caps; unsupported formats fail explicitly.
+- memory_probe: isolated Python child opens QUERY/VM_READ handles, verifies creation
+  FILETIME on the actual handle, PSAPI modules, PEB image base, VirtualQueryEx and
+  NtQueryInformationThread(ThreadQuerySetWin32StartAddress). No process memory writes.
+- forensics: 15-second subprocess bound; Token privileges/elevation/integrity, NVML
+  loaded only from explicit System32/nvml.dll. No dependency/driver installation.
+- triage: cheap pure additive priority. Manual evidence keyed by PID+creation time,
+  pruned when process disappears; no remote-IP reputation or unknown=unsigned shortcut.
+- snapshots: JSON schema 1, capped validation, atomic save; process identity for diff
+  is exe/name/user (not live PID). Configured collection failures mark coverage false.
+- quarantine: stream ZIP_STORED container + metadata, CRC and SHA verification before
+  any target termination; stat/hash recheck before unlink, errors retain the container.
+- system_watch/event_audit: optional read-only local registry/file/log reads. Audit
+  records are not API interception. No key/clipboard capture or automatic registry repair.
+- ui/defense: nonmodal system tools, one optional worker at a time, bounded histories,
+  timers inactive unless opted in, automatic log/GPU refresh only on the active tab.
+  Closing stops timers and waits for tasks. Nonblocking tasks do not blink/disable
+  main action buttons; destructive actions remain serialized with blocking tasks.
+
+Snapshots/containers/logs contain private paths/account names/commands. Data is not
+signed/encrypted or immune to changes by a same-user/admin adversary. Normal/random
+modes use the same source/runtime; the random interpreter copy preserves its hash.

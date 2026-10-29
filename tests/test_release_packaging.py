@@ -32,4 +32,4 @@ def test_singlefile_payload_does_not_contain_entry_exe(tmp_path, monkeypatch):
         target.write_text('test')
     names = [relative.as_posix() for _, relative in module.payload_names(tmp_path)]
     assert set(names) == {'runtime/pythonw.exe', 'runtime/bootstrap.py', 'LICENSE'}
-    assert module.VERSION == '0.2.2'
+    assert module.VERSION == '0.3.0'
